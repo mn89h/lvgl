@@ -195,7 +195,6 @@ static void egl_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * 
     }
 
 #if LV_USE_DRAW_OPENGLES
-    GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
     lv_opengles_viewport(0, 0, lv_display_get_original_horizontal_resolution(disp),
                          lv_display_get_original_vertical_resolution(disp));
     lv_opengles_render_display_texture(disp, false, true);
@@ -281,7 +280,7 @@ static void * wl_egl_init_display(void * backend_ctx, lv_display_t * display, in
 
     lv_display_set_flush_cb(display, egl_flush_cb);
     lv_display_set_flush_wait_cb(display, flush_wait_cb);
-    lv_display_set_render_mode(display, LV_DISPLAY_RENDER_MODE_DIRECT);
+    lv_display_set_render_mode(display, LV_USE_DRAW_NANOVG ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_DIRECT);
 
     return ddata;
 }

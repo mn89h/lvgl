@@ -218,12 +218,6 @@ static int32_t evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
 {
     LV_UNUSED(draw_unit);
 
-    if(task->type == LV_DRAW_TASK_TYPE_3D) {
-        task->preference_score = 100;
-        task->preferred_draw_unit_id = DRAW_UNIT_ID_OPENGLES;
-        return 1;
-    }
-
     if(task->type == LV_DRAW_TASK_TYPE_IMAGE &&
        ((lv_draw_image_dsc_t *)task->draw_dsc)->header.cf >= LV_COLOR_FORMAT_PROPRIETARY_START) {
         return 0;
@@ -418,9 +412,6 @@ static void blend_texture_layer(lv_draw_task_t * t)
         GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, framebuffer));
         GL_CALL(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target_texture, 0));
     }
-    else {
-        GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-    }
 
     lv_opengles_viewport(0, 0, targ_tex_w, targ_tex_h);
     // TODO rotation
@@ -533,9 +524,6 @@ static void draw_from_cached_texture(lv_draw_task_t * t)
         GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, framebuffer));
         GL_CALL(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target_texture, 0));
     }
-    else {
-        GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-    }
 
     lv_opengles_viewport(0, 0, targ_tex_w, targ_tex_h);
     lv_area_move(&t->clip_area, -dest_layer->buf_area.x1, -dest_layer->buf_area.y1);
@@ -582,9 +570,6 @@ static void execute_drawing(lv_draw_opengles_unit_t * u)
                 unsigned int framebuffer = get_framebuffer(u);
                 GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, framebuffer));
                 GL_CALL(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target_texture, 0));
-            }
-            else {
-                GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
             }
 
             if(fill_dsc->opa >= LV_OPA_MAX) {
@@ -687,9 +672,6 @@ static void lv_draw_opengles_3d(lv_draw_task_t * t, const lv_draw_3d_dsc_t * dsc
         unsigned int framebuffer = get_framebuffer(u);
         GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, framebuffer));
         GL_CALL(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target_texture, 0));
-    }
-    else {
-        GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
     }
 
     lv_opengles_viewport(0, 0, targ_tex_w, targ_tex_h);
