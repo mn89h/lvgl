@@ -204,7 +204,6 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
     t->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
     draw_opengles_unit->task_act = t;
 
-    LV_LOG_USER("GLES Execute: task type %d on layer %p", t->type, (void*)layer);
     execute_drawing(draw_opengles_unit);
 
     draw_opengles_unit->task_act->state = LV_DRAW_TASK_STATE_FINISHED;
@@ -678,8 +677,6 @@ static void lv_draw_opengles_3d(lv_draw_task_t * t, const lv_draw_3d_dsc_t * dsc
 {
     LV_PROFILER_DRAW_BEGIN;
     lv_draw_opengles_unit_t * u = (lv_draw_opengles_unit_t *) t->draw_unit;
-
-    LV_LOG_USER("3D Task: tex_id=%u, area=%d,%d %dx%d", dsc->tex_id, coords->x1, coords->y1, lv_area_get_width(coords), lv_area_get_height(coords));
 
     lv_layer_t * dest_layer = t->target_layer;
     unsigned int target_texture = layer_get_texture(dest_layer);

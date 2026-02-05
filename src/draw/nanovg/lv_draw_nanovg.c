@@ -417,7 +417,6 @@ static int32_t draw_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
 
     t->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
 
-    LV_LOG_USER("NanoVG Execute: task type %d on layer %p", t->type, (void*)layer);
     draw_execute(u, t);
 
     t->state = LV_DRAW_TASK_STATE_FINISHED;
