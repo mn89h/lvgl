@@ -268,6 +268,21 @@ static void on_layer_changed(lv_draw_nanovg_unit_t * u, lv_layer_t * new_layer)
         return;
     }
 
+    uintptr_t val = (uintptr_t)new_layer->user_data;
+    if (val < 100000) {
+        /* Assume texture ID */
+        unsigned int texture_id = (unsigned int)val;
+
+        if (u->screen_fbo == 0) {
+             glGenFramebuffers(1, &u->screen_fbo);
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, u->screen_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture_id, 0);
+
+        LV_PROFILER_DRAW_END;
+        return;
+    }
+
     LV_PROFILER_BEGIN_TAG("nvgBindFramebuffer");
     nvgluBindFramebuffer(lv_nanovg_fbo_cache_entry_to_fb(new_layer->user_data));
     LV_PROFILER_END_TAG("nvgBindFramebuffer");
@@ -402,6 +417,7 @@ static int32_t draw_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
 
     t->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
 
+    LV_LOG_USER("NanoVG Execute: task type %d on layer %p", t->type, (void*)layer);
     draw_execute(u, t);
 
     t->state = LV_DRAW_TASK_STATE_FINISHED;
@@ -415,44 +431,8 @@ static int32_t draw_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
 static int32_t draw_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
 {
     LV_UNUSED(draw_unit);
-
-    switch(task->type) {
-        case LV_DRAW_TASK_TYPE_FILL:
-        case LV_DRAW_TASK_TYPE_BORDER:
-        case LV_DRAW_TASK_TYPE_BOX_SHADOW:
-        case LV_DRAW_TASK_TYPE_LETTER:
-        case LV_DRAW_TASK_TYPE_LABEL:
-        case LV_DRAW_TASK_TYPE_IMAGE:
-        case LV_DRAW_TASK_TYPE_LAYER:
-        case LV_DRAW_TASK_TYPE_LINE:
-        case LV_DRAW_TASK_TYPE_ARC:
-        case LV_DRAW_TASK_TYPE_TRIANGLE:
-        case LV_DRAW_TASK_TYPE_MASK_RECTANGLE:
-#if LV_USE_VECTOR_GRAPHIC
-        case LV_DRAW_TASK_TYPE_VECTOR:
-#endif
-            break;
-
-        default:
-            /*The draw unit is not able to draw this task. */
-            return 0;
-    }
-
-    if(task->target_layer->user_data == NULL) {
-        return 0;
-    }
-
-    if(task->target_layer->user_data == NULL) {
-        return 0;
-    }
-
-    if(task->preference_score > 80) {
-        /* The draw unit is able to draw this task. */
-        task->preference_score = 80;
-        task->preferred_draw_unit_id = NANOVG_DRAW_UNIT_ID;
-    }
-
-    return 1;
+    LV_UNUSED(task);
+    return 0;
 }
 
 static int32_t draw_delete(lv_draw_unit_t * draw_unit)
@@ -462,6 +442,10 @@ static int32_t draw_delete(lv_draw_unit_t * draw_unit)
     lv_nanovg_fbo_cache_deinit(unit);
     lv_nanovg_image_cache_deinit(unit);
     lv_nanovg_utils_deinit(unit);
+    if(unit->screen_fbo) {
+        glDeleteFramebuffers(1, &unit->screen_fbo);
+        unit->screen_fbo = 0;
+    }
     NVG_CTX_DELETE(unit->vg);
     unit->vg = NULL;
     return 0;

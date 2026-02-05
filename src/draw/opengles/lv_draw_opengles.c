@@ -193,18 +193,18 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
     unsigned int texture = layer_get_texture(layer);
     if(texture == 0) {
         lv_display_t * disp = lv_refr_get_disp_refreshing();
-        if(layer != disp->layer_head && layer->draw_buf != disp->layer_head->draw_buf) {
-            int32_t w = lv_area_get_width(&layer->buf_area);
-            int32_t h = lv_area_get_height(&layer->buf_area);
+        LV_ASSERT(layer != disp->layer_head);
+        int32_t w = lv_area_get_width(&layer->buf_area);
+        int32_t h = lv_area_get_height(&layer->buf_area);
 
-            texture = create_texture(w, h, NULL);
-            layer->user_data = (void *)(uintptr_t)texture;
-        }
+        texture = create_texture(w, h, NULL);
+        layer->user_data = (void *)(uintptr_t)texture;
     }
 
     t->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
     draw_opengles_unit->task_act = t;
 
+    LV_LOG_USER("GLES Execute: task type %d on layer %p", t->type, (void*)layer);
     execute_drawing(draw_opengles_unit);
 
     draw_opengles_unit->task_act->state = LV_DRAW_TASK_STATE_FINISHED;
@@ -219,6 +219,12 @@ static int32_t evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
 {
     LV_UNUSED(draw_unit);
 
+    if(task->type == LV_DRAW_TASK_TYPE_3D) {
+        task->preference_score = 100;
+        task->preferred_draw_unit_id = DRAW_UNIT_ID_OPENGLES;
+        return 1;
+    }
+
     if(task->type == LV_DRAW_TASK_TYPE_IMAGE &&
        ((lv_draw_image_dsc_t *)task->draw_dsc)->header.cf >= LV_COLOR_FORMAT_PROPRIETARY_START) {
         return 0;
@@ -229,7 +235,7 @@ static int32_t evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
     if(lv_refr_get_disp_refreshing() == NULL) return 0;
 
     if(((lv_draw_dsc_base_t *)task->draw_dsc)->user_data == NULL) {
-        task->preference_score = 80;
+        task->preference_score = 0;
         task->preferred_draw_unit_id = DRAW_UNIT_ID_OPENGLES;
     }
     return 0;
@@ -672,6 +678,8 @@ static void lv_draw_opengles_3d(lv_draw_task_t * t, const lv_draw_3d_dsc_t * dsc
 {
     LV_PROFILER_DRAW_BEGIN;
     lv_draw_opengles_unit_t * u = (lv_draw_opengles_unit_t *) t->draw_unit;
+
+    LV_LOG_USER("3D Task: tex_id=%u, area=%d,%d %dx%d", dsc->tex_id, coords->x1, coords->y1, lv_area_get_width(coords), lv_area_get_height(coords));
 
     lv_layer_t * dest_layer = t->target_layer;
     unsigned int target_texture = layer_get_texture(dest_layer);

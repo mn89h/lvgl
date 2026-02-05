@@ -278,6 +278,7 @@ static bool image_create_cb(image_item_t * item, void * user_data)
     }
 
     LV_PROFILER_DRAW_BEGIN_TAG("nvgCreateImage");
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     int image_handle = nvgCreateImage(item->u->vg, w, h, flags, nvg_tex_type, data);
     LV_PROFILER_DRAW_END_TAG("nvgCreateImage");
 

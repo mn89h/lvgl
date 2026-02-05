@@ -77,6 +77,7 @@ typedef struct _lv_draw_nanovg_unit_t {
     bool is_started;
     lv_draw_buf_t * image_buf;
     lv_nanovg_gl_state_t gl_state;
+    unsigned int screen_fbo;
 
     lv_cache_t * image_cache;
     struct _lv_pending_t * image_pending;
