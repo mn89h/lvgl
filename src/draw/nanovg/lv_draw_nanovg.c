@@ -78,8 +78,6 @@
  *  STATIC PROTOTYPES
  **********************/
 
-static void nanovg_gl_state_save(lv_nanovg_gl_state_t * state);
-static void nanovg_gl_state_restore(const lv_nanovg_gl_state_t * state);
 static int32_t draw_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer);
 static int32_t draw_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task);
 static int32_t draw_delete(lv_draw_unit_t * draw_unit);
@@ -128,50 +126,6 @@ int lv_nanovg_fb_get_image_handle(struct NVGLUframebuffer * fb)
 /**********************
  *   STATIC FUNCTIONS
  **********************/
-
-static void nanovg_gl_state_save(lv_nanovg_gl_state_t * state)
-{
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &state->FBO);
-    glGetIntegerv(GL_VIEWPORT, state->viewport);
-    state->scissor_test = glIsEnabled(GL_SCISSOR_TEST);
-    if(state->scissor_test) {
-        glGetIntegerv(GL_SCISSOR_BOX, state->scissor_box);
-    }
-}
-
-static void nanovg_gl_state_restore(const lv_nanovg_gl_state_t * state)
-{
-    glBindFramebuffer(GL_FRAMEBUFFER, state->FBO);
-    glViewport(state->viewport[0], state->viewport[1], state->viewport[2], state->viewport[3]);
-    if(state->scissor_test) {
-        glEnable(GL_SCISSOR_TEST);
-        glScissor(state->scissor_box[0], state->scissor_box[1], state->scissor_box[2], state->scissor_box[3]);
-    } else {
-        glDisable(GL_SCISSOR_TEST);
-    }
-}
-
-void lv_nanovg_end_frame(lv_draw_unit_t * draw_unit)
-{
-    lv_draw_nanovg_unit_t * u = (lv_draw_nanovg_unit_t *)draw_unit;
-    LV_ASSERT_NULL(u);
-    LV_PROFILER_DRAW_BEGIN;
-
-    if(!u->is_started) {
-        LV_PROFILER_DRAW_END;
-        return;
-    }
-
-    LV_PROFILER_DRAW_BEGIN_TAG("nvgEndFrame");
-    nvgEndFrame(u->vg);
-    LV_PROFILER_DRAW_END_TAG("nvgEndFrame");
-
-    nanovg_gl_state_restore(&u->gl_state);
-
-    lv_nanovg_clean_up(u);
-
-    LV_PROFILER_DRAW_END;
-}
 
 static void draw_execute(lv_draw_nanovg_unit_t * u, lv_draw_task_t * t)
 {
@@ -256,29 +210,13 @@ static void draw_execute(lv_draw_nanovg_unit_t * u, lv_draw_task_t * t)
     }
 }
 
-static void on_layer_changed(lv_draw_nanovg_unit_t * u, lv_layer_t * new_layer)
+static void on_layer_changed(lv_layer_t * new_layer)
 {
     LV_PROFILER_DRAW_BEGIN;
-    LV_UNUSED(u);
 
     if(!new_layer->user_data) {
         /* Bind the default framebuffer for normal rendering */
         nvgluBindFramebuffer(NULL);
-        LV_PROFILER_DRAW_END;
-        return;
-    }
-
-    uintptr_t val = (uintptr_t)new_layer->user_data;
-    if (val < 100000) {
-        /* Assume texture ID */
-        unsigned int texture_id = (unsigned int)val;
-
-        if (u->screen_fbo == 0) {
-             glGenFramebuffers(1, &u->screen_fbo);
-        }
-        glBindFramebuffer(GL_FRAMEBUFFER, u->screen_fbo);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture_id, 0);
-
         LV_PROFILER_DRAW_END;
         return;
     }
@@ -393,26 +331,24 @@ static int32_t draw_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
 
     lv_draw_task_t * t = lv_draw_get_available_task(layer, NULL, NANOVG_DRAW_UNIT_ID);
     if(!t || t->preferred_draw_unit_id != NANOVG_DRAW_UNIT_ID) {
-        lv_nanovg_end_frame(draw_unit);
+        lv_nanovg_end_frame(u);
         return LV_DRAW_UNIT_IDLE;
+    }
+
+    if(u->current_layer != layer) {
+        on_layer_changed(layer);
+        u->current_layer = layer;
     }
 
     if(!u->is_started) {
         const int32_t buf_w = lv_area_get_width(&layer->buf_area);
         const int32_t buf_h = lv_area_get_height(&layer->buf_area);
 
-        nanovg_gl_state_save(&u->gl_state);
-
         glViewport(0, 0, buf_w, buf_h);
         LV_PROFILER_DRAW_BEGIN_TAG("nvgBeginFrame");
         nvgBeginFrame(u->vg, buf_w, buf_h, 1.0f);
         LV_PROFILER_DRAW_END_TAG("nvgBeginFrame");
         u->is_started = true;
-    }
-
-    if(u->current_layer != layer) {
-        on_layer_changed(u, layer);
-        u->current_layer = layer;
     }
 
     t->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
@@ -430,8 +366,36 @@ static int32_t draw_dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
 static int32_t draw_evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
 {
     LV_UNUSED(draw_unit);
-    LV_UNUSED(task);
-    return 0;
+
+    switch(task->type) {
+        case LV_DRAW_TASK_TYPE_FILL:
+        case LV_DRAW_TASK_TYPE_BORDER:
+        case LV_DRAW_TASK_TYPE_BOX_SHADOW:
+        case LV_DRAW_TASK_TYPE_LETTER:
+        case LV_DRAW_TASK_TYPE_LABEL:
+        case LV_DRAW_TASK_TYPE_IMAGE:
+        case LV_DRAW_TASK_TYPE_LAYER:
+        case LV_DRAW_TASK_TYPE_LINE:
+        case LV_DRAW_TASK_TYPE_ARC:
+        case LV_DRAW_TASK_TYPE_TRIANGLE:
+        case LV_DRAW_TASK_TYPE_MASK_RECTANGLE:
+#if LV_USE_VECTOR_GRAPHIC
+        case LV_DRAW_TASK_TYPE_VECTOR:
+#endif
+            break;
+
+        default:
+            /*The draw unit is not able to draw this task. */
+            return 0;
+    }
+
+    if(task->preference_score > 80) {
+        /* The draw unit is able to draw this task. */
+        task->preference_score = 80;
+        task->preferred_draw_unit_id = NANOVG_DRAW_UNIT_ID;
+    }
+
+    return 1;
 }
 
 static int32_t draw_delete(lv_draw_unit_t * draw_unit)
@@ -441,10 +405,6 @@ static int32_t draw_delete(lv_draw_unit_t * draw_unit)
     lv_nanovg_fbo_cache_deinit(unit);
     lv_nanovg_image_cache_deinit(unit);
     lv_nanovg_utils_deinit(unit);
-    if(unit->screen_fbo) {
-        glDeleteFramebuffers(1, &unit->screen_fbo);
-        unit->screen_fbo = 0;
-    }
     NVG_CTX_DELETE(unit->vg);
     unit->vg = NULL;
     return 0;
@@ -487,6 +447,9 @@ static void draw_event_cb(lv_event_t * e)
             break;
         case LV_EVENT_SCREEN_LOAD_START:
             on_layer_readback(u, layer);
+            break;
+        case LV_EVENT_INVALIDATE_AREA:
+            lv_nanovg_image_cache_drop(u, lv_event_get_param(e));
             break;
         default:
             break;

@@ -62,7 +62,7 @@ void lv_draw_nanovg_layer(lv_draw_task_t * t, const lv_draw_image_dsc_t * draw_d
     new_draw_dsc.src = NULL;
     lv_draw_nanovg_image(t, &new_draw_dsc, coords, image_handle);
 
-    lv_nanovg_end_frame((lv_draw_unit_t *)u);
+    lv_nanovg_end_frame(u);
 
     LV_PROFILER_DRAW_END;
 }

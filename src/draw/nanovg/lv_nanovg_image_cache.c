@@ -142,16 +142,13 @@ int lv_nanovg_image_cache_get_handle(struct _lv_draw_nanovg_unit_t * u,
     search_key.src = src;
     search_key.src_type = lv_image_src_get_type(src);
 
-    if (search_key.src_type == LV_IMAGE_SRC_VARIABLE && (decoded->header.flags & LV_IMAGE_FLAGS_MODIFIABLE)) {
-        lv_nanovg_image_cache_drop(u, src);
-    }
-
     lv_cache_entry_t * cache_node_entry = lv_cache_acquire(u->image_cache, &search_key, NULL);
     if(cache_node_entry == NULL) {
+        /* check if the cache is full */
         size_t free_size = lv_cache_get_free_size(u->image_cache, NULL);
         if(free_size == 0) {
             LV_LOG_INFO("image cache is full, release all pending cache entries");
-            lv_nanovg_end_frame((lv_draw_unit_t *)u);
+            lv_nanovg_end_frame(u);
         }
 
         cache_node_entry = lv_cache_acquire_or_create(u->image_cache, &search_key, NULL);
@@ -278,7 +275,6 @@ static bool image_create_cb(image_item_t * item, void * user_data)
     }
 
     LV_PROFILER_DRAW_BEGIN_TAG("nvgCreateImage");
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     int image_handle = nvgCreateImage(item->u->vg, w, h, flags, nvg_tex_type, data);
     LV_PROFILER_DRAW_END_TAG("nvgCreateImage");
 

@@ -151,7 +151,11 @@ void lv_nanovg_path_append_arc(NVGcontext * ctx,
 void lv_nanovg_fill(NVGcontext * ctx, enum NVGwinding winding, enum NVGcompositeOperation composite_operation,
                     NVGcolor color);
 
-
+/**
+ * End the current frame
+ * @param u pointer to the nanovg unit
+ */
+void lv_nanovg_end_frame(struct _lv_draw_nanovg_unit_t * u);
 
 /**
  * Clean up the NanoVG unit (e.g. at the end of task)
