@@ -244,6 +244,10 @@ void lv_opengles_render(unsigned int texture, const lv_area_t * texture_area, lv
                         bool h_flip, bool v_flip, lv_color_t fill_color, bool blend_opt, bool swap_red_blue)
 {
     LV_PROFILER_DRAW_BEGIN;
+    GL_CALL(glDisable(GL_SCISSOR_TEST));
+    GL_CALL(glDisable(GL_DEPTH_TEST));
+    GL_CALL(glDisable(GL_CULL_FACE));
+
     lv_area_t intersection;
     if(!lv_area_intersect(&intersection, texture_area, texture_clip_area)) {
         LV_PROFILER_DRAW_END;

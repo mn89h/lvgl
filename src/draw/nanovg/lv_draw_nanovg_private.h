@@ -17,6 +17,7 @@ extern "C" {
 #include "../../lv_conf_internal.h"
 
 #if LV_USE_DRAW_NANOVG
+#include "../../drivers/opengles/lv_opengles_private.h"
 #include "../lv_draw.h"
 #include "../lv_draw_private.h"
 #include "../../draw/lv_draw_vector.h"
@@ -59,6 +60,13 @@ extern "C" {
  *      TYPEDEFS
  **********************/
 
+typedef struct {
+    GLint FBO;
+    GLint viewport[4];
+    GLboolean scissor_test;
+    GLint scissor_box[4];
+} lv_nanovg_gl_state_t;
+
 struct _lv_pending_t;
 struct NVGLUframebuffer;
 
@@ -68,6 +76,7 @@ typedef struct _lv_draw_nanovg_unit_t {
     NVGcontext * vg;
     bool is_started;
     lv_draw_buf_t * image_buf;
+    lv_nanovg_gl_state_t gl_state;
 
     lv_cache_t * image_cache;
     struct _lv_pending_t * image_pending;
@@ -189,6 +198,12 @@ void lv_draw_nanovg_mask_rect(lv_draw_task_t * t, const lv_draw_mask_rect_dsc_t 
  * @return the image handle
  */
 int lv_nanovg_fb_get_image_handle(struct NVGLUframebuffer * fb);
+
+/**
+ * End the current frame
+ * @param u pointer to the nanovg unit
+ */
+void lv_nanovg_end_frame(struct _lv_draw_unit_t * u);
 
 #if LV_USE_VECTOR_GRAPHIC
 /**

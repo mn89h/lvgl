@@ -193,12 +193,13 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
     unsigned int texture = layer_get_texture(layer);
     if(texture == 0) {
         lv_display_t * disp = lv_refr_get_disp_refreshing();
-        LV_ASSERT(layer != disp->layer_head);
-        int32_t w = lv_area_get_width(&layer->buf_area);
-        int32_t h = lv_area_get_height(&layer->buf_area);
+        if(layer != disp->layer_head && layer->draw_buf != disp->layer_head->draw_buf) {
+            int32_t w = lv_area_get_width(&layer->buf_area);
+            int32_t h = lv_area_get_height(&layer->buf_area);
 
-        texture = create_texture(w, h, NULL);
-        layer->user_data = (void *)(uintptr_t)texture;
+            texture = create_texture(w, h, NULL);
+            layer->user_data = (void *)(uintptr_t)texture;
+        }
     }
 
     t->state = LV_DRAW_TASK_STATE_IN_PROGRESS;
@@ -228,7 +229,7 @@ static int32_t evaluate(lv_draw_unit_t * draw_unit, lv_draw_task_t * task)
     if(lv_refr_get_disp_refreshing() == NULL) return 0;
 
     if(((lv_draw_dsc_base_t *)task->draw_dsc)->user_data == NULL) {
-        task->preference_score = 0;
+        task->preference_score = 80;
         task->preferred_draw_unit_id = DRAW_UNIT_ID_OPENGLES;
     }
     return 0;
@@ -412,6 +413,9 @@ static void blend_texture_layer(lv_draw_task_t * t)
         GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, framebuffer));
         GL_CALL(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target_texture, 0));
     }
+    else {
+        GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    }
 
     lv_opengles_viewport(0, 0, targ_tex_w, targ_tex_h);
     // TODO rotation
@@ -491,6 +495,13 @@ static void draw_from_cached_texture(lv_draw_task_t * t)
     lv_area_move(&t->area, -a.x1, -a.y1);
     lv_area_move(&t->_real_area, -a.x1, -a.y1);
 
+    if(t->type == LV_DRAW_TASK_TYPE_IMAGE) {
+        lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)t->draw_dsc;
+        if(img_dsc->header.flags & LV_IMAGE_FLAGS_MODIFIABLE) {
+            lv_cache_drop(u->texture_cache, &data_to_find, u);
+        }
+    }
+
     lv_cache_entry_t * entry_cached = lv_cache_acquire_or_create(u->texture_cache, &data_to_find, u);
 
     lv_area_move(&t->area, a.x1, a.y1);
@@ -516,6 +527,9 @@ static void draw_from_cached_texture(lv_draw_task_t * t)
         unsigned int framebuffer = get_framebuffer(u);
         GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, framebuffer));
         GL_CALL(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target_texture, 0));
+    }
+    else {
+        GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
     }
 
     lv_opengles_viewport(0, 0, targ_tex_w, targ_tex_h);
@@ -563,6 +577,9 @@ static void execute_drawing(lv_draw_opengles_unit_t * u)
                 unsigned int framebuffer = get_framebuffer(u);
                 GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, framebuffer));
                 GL_CALL(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target_texture, 0));
+            }
+            else {
+                GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
             }
 
             if(fill_dsc->opa >= LV_OPA_MAX) {
@@ -665,6 +682,9 @@ static void lv_draw_opengles_3d(lv_draw_task_t * t, const lv_draw_3d_dsc_t * dsc
         unsigned int framebuffer = get_framebuffer(u);
         GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, framebuffer));
         GL_CALL(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target_texture, 0));
+    }
+    else {
+        GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
     }
 
     lv_opengles_viewport(0, 0, targ_tex_w, targ_tex_h);

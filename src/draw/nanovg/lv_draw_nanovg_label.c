@@ -214,7 +214,7 @@ static inline int letter_get_image_handle(lv_draw_nanovg_unit_t * u, lv_font_gly
         size_t free_size = lv_cache_get_free_size(u->letter_cache, NULL);
         if(free_size == 0) {
             LV_LOG_INFO("letter cache is full, release all pending cache entries");
-            lv_nanovg_end_frame(u);
+            lv_nanovg_end_frame((lv_draw_unit_t *)u);
         }
 
         cache_node_entry = lv_cache_acquire_or_create(u->letter_cache, &search_key, NULL);

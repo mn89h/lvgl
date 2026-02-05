@@ -236,24 +236,7 @@ void lv_nanovg_fill(NVGcontext * ctx, enum NVGwinding winding, enum NVGcomposite
     LV_PROFILER_DRAW_END;
 }
 
-void lv_nanovg_end_frame(struct _lv_draw_nanovg_unit_t * u)
-{
-    LV_ASSERT_NULL(u);
-    LV_PROFILER_DRAW_BEGIN;
 
-    if(!u->is_started) {
-        LV_PROFILER_DRAW_END;
-        return;
-    }
-
-    LV_PROFILER_DRAW_BEGIN_TAG("nvgEndFrame");
-    nvgEndFrame(u->vg);
-    LV_PROFILER_DRAW_END_TAG("nvgEndFrame");
-
-    lv_nanovg_clean_up(u);
-
-    LV_PROFILER_DRAW_END;
-}
 
 void lv_nanovg_clean_up(struct _lv_draw_nanovg_unit_t * u)
 {
