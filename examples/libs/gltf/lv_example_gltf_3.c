@@ -135,9 +135,9 @@ static void move_plant(plant_t * plant, const lv_3dpoint_t * point)
 /**
  * Load multiple models in a single glTF object and modify their position, rotation and scale at runtime
  */
-void lv_example_gltf_3(lv_obj_t * parent)
+void lv_example_gltf_3(void)
 {
-    lv_obj_t * gltf = lv_gltf_create(parent);
+    lv_obj_t * gltf = lv_gltf_create(lv_screen_active());
     lv_obj_set_size(gltf, LV_PCT(100), LV_PCT(100));
     lv_gltf_set_pitch(gltf, -22.5f);
     lv_gltf_set_distance(gltf, 5);
@@ -173,7 +173,7 @@ void lv_example_gltf_3(lv_obj_t * parent)
 
 #else
 
-void lv_example_gltf_3(lv_obj_t * parent)
+void lv_example_gltf_3(void)
 {
     /*TODO
      *fallback for online examples*/
