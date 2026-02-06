@@ -51,6 +51,9 @@ typedef struct {
     int32_t w;
     int32_t h;
     unsigned int texture;
+    /* Track allocated dimensions to decide between Image vs SubImage */
+    int32_t alloc_w;
+    int32_t alloc_h;
 } cache_data_t;
 
 /**********************
@@ -73,7 +76,7 @@ static bool draw_to_texture(lv_draw_opengles_unit_t * u, cache_data_t * cache_da
 
 static unsigned int layer_get_texture(lv_layer_t * layer);
 static unsigned int get_framebuffer(lv_draw_opengles_unit_t * u);
-static unsigned int create_texture(int32_t w, int32_t h, const void * data);
+static unsigned int update_texture(int32_t w, int32_t h, const void * data, unsigned int existing_tex, int32_t * alloc_w, int32_t * alloc_h);
 
 #if LV_USE_3DTEXTURE
     static void lv_draw_opengles_3d(lv_draw_task_t * t, const lv_draw_3d_dsc_t * dsc, const lv_area_t * coords);
@@ -197,7 +200,12 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         int32_t w = lv_area_get_width(&layer->buf_area);
         int32_t h = lv_area_get_height(&layer->buf_area);
 
-        texture = create_texture(w, h, NULL);
+        /* Temporary trackers for the layer texture creation */
+        int32_t temp_alloc_w = 0;
+        int32_t temp_alloc_h = 0;
+
+        /* Initialize the layer texture (passing NULL for data as it's a render target) */
+        texture = update_texture(w, h, NULL, 0, &temp_alloc_w, &temp_alloc_h);
         layer->user_data = (void *)(uintptr_t)texture;
     }
 
@@ -369,11 +377,11 @@ static bool draw_to_texture(lv_draw_opengles_unit_t * u, cache_data_t * cache_da
         }
     }
 
-    unsigned int texture = create_texture(texture_w, texture_h, u->render_draw_buf.data);
+    cache_data->texture = update_texture(texture_w, texture_h, u->render_draw_buf.data,
+                                     cache_data->texture, &cache_data->alloc_w, &cache_data->alloc_h);
 
     cache_data->w = texture_w;
     cache_data->h = texture_h;
-    cache_data->texture = texture;
 
     if(obj) {
         lv_obj_set_flag(obj, LV_OBJ_FLAG_SEND_DRAW_TASK_EVENTS, original_send_draw_task_event);
@@ -461,7 +469,10 @@ static void draw_from_cached_texture(lv_draw_task_t * t)
 
     /*img_dsc->image_area is an absolute coordinate so it's different
      *for the same image on a different position. So make it relative before using for cache. */
-    lv_area_t a = t->area;
+    lv_area_t a_original = t->area;
+    /*Store absolute area to restore later*/
+    lv_area_t real_a_original = t->_real_area;
+
     if(t->type == LV_DRAW_TASK_TYPE_IMAGE) {
         lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)data_to_find.draw_dsc;
         lv_area_move(&img_dsc->image_area, -t->area.x1, -t->area.y1);
@@ -488,33 +499,27 @@ static void draw_from_cached_texture(lv_draw_task_t * t)
         arc_dsc->center.y -= t->area.y1;
     }
 
-    lv_area_move(&t->area, -a.x1, -a.y1);
-    lv_area_move(&t->_real_area, -a.x1, -a.y1);
-
-    if(t->type == LV_DRAW_TASK_TYPE_IMAGE) {
-        lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)t->draw_dsc;
-        if(img_dsc->header.flags & LV_IMAGE_FLAGS_MODIFIABLE) {
-            lv_cache_drop(u->texture_cache, &data_to_find, u);
-        }
-    }
-
     lv_cache_entry_t * entry_cached = lv_cache_acquire_or_create(u->texture_cache, &data_to_find, u);
 
-    lv_area_move(&t->area, a.x1, a.y1);
-    lv_area_move(&t->_real_area, a.x1, a.y1);
-
     if(!entry_cached) {
+        data_to_find.draw_dsc->user_data = user_data_saved;
         LV_PROFILER_DRAW_END;
         return;
     }
 
+    cache_data_t * data_cached = lv_cache_entry_get_data(entry_cached);
+
+    /* Handle Video/Modifiable Update via Fast Path (glTexSubImage2D) */
+    if(t->type == LV_DRAW_TASK_TYPE_IMAGE) {
+        lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)t->draw_dsc;
+        if(img_dsc->header.flags & LV_IMAGE_FLAGS_MODIFIABLE) {
+            draw_to_texture(u, data_cached);
+        }
+    }
+
     data_to_find.draw_dsc->user_data = user_data_saved;
 
-    cache_data_t * data_cached = lv_cache_entry_get_data(entry_cached);
-    unsigned int texture = data_cached->texture;
-
     lv_layer_t * dest_layer = t->target_layer;
-
     unsigned int target_texture = layer_get_texture(dest_layer);
     int32_t targ_tex_w = lv_area_get_width(&dest_layer->buf_area);
     int32_t targ_tex_h = lv_area_get_height(&dest_layer->buf_area);
@@ -526,14 +531,24 @@ static void draw_from_cached_texture(lv_draw_task_t * t)
     }
 
     lv_opengles_viewport(0, 0, targ_tex_w, targ_tex_h);
+
+    /* Apply Clipping and Rendering Offset relative to the destination buffer */
+    lv_area_t clip_a_save = t->clip_area;
     lv_area_move(&t->clip_area, -dest_layer->buf_area.x1, -dest_layer->buf_area.y1);
-    lv_area_t render_area = t->_real_area;
+
+    /* We must draw the texture at its original screen position relative to the layer */
+    lv_area_t render_area = real_a_original;
     lv_area_move(&render_area, -dest_layer->buf_area.x1, -dest_layer->buf_area.y1);
-    lv_opengles_render_texture(texture, &render_area, 0xff, targ_tex_w, targ_tex_h, &t->clip_area, h_flip, v_flip);
+
+    lv_opengles_render_texture(data_cached->texture, &render_area, 0xff, targ_tex_w, targ_tex_h, &t->clip_area, h_flip, v_flip);
 
     if(target_texture) {
         GL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
     }
+
+    t->clip_area = clip_a_save;
+    t->area = a_original;
+    t->_real_area = real_a_original;
 
     lv_cache_release(u->texture_cache, entry_cached, u);
 
@@ -631,35 +646,55 @@ static unsigned int get_framebuffer(lv_draw_opengles_unit_t * u)
     return u->framebuffer;
 }
 
-static unsigned int create_texture(int32_t w, int32_t h, const void * data)
+static unsigned int update_texture(int32_t w, int32_t h, const void * data, unsigned int existing_tex, int32_t * alloc_w, int32_t * alloc_h)
 {
     LV_PROFILER_DRAW_BEGIN;
-    unsigned int texture;
-    GL_CALL(glGenTextures(1, &texture));
-    GL_CALL(glBindTexture(GL_TEXTURE_2D, texture));
-    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
-    GL_CALL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+    unsigned int texture = existing_tex;
 
-    /* LV_COLOR_DEPTH 32, 16 are supported but the cached textures will always
-     * have full ARGB pixels since the alpha channel is required for blending.
-     */
-    GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data));
-#if 0
-    GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
-    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 20));
-    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
-    /* GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST));
-     * Alternatively, the above form can be used in some cases for slightly faster performance, but
-     * visual quality when using image scales that are not exactly 1:1 (or 2:1 or some other increment)
-     * will be not as good.
-     */
-#endif
+    if(texture == 0) {
+        GL_CALL(glGenTextures(1, &texture));
+        GL_CALL(glBindTexture(GL_TEXTURE_2D, texture));
 
-    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
-    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+        /* Set static parameters only once during creation */
+        GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+        GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+        GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
+        GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+        GL_CALL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+
+        /* Force allocation path below by clearing tracking values */
+        *alloc_w = 0;
+        *alloc_h = 0;
+
+    #if 0
+        GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+        GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 20));
+        GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
+        /* GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST));
+        * Alternatively, the above form can be used in some cases for slightly faster performance, but
+        * visual quality when using image scales that are not exactly 1:1 (or 2:1 or some other increment)
+        * will be not as good.
+        */
+    #endif
+    }
+    else {
+        GL_CALL(glBindTexture(GL_TEXTURE_2D, texture));
+    }
+
+    /* If dimensions changed (or new texture), allocate/re-allocate (Slow path) */
+    if(w != *alloc_w || h != *alloc_h) {
+        GL_CALL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+        GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data));
+        *alloc_w = w;
+        *alloc_h = h;
+    }
+    /* FAST PATH: Stream new video frame pixels into existing GPU memory (No allocation) */
+    else if(data != NULL) {
+        GL_CALL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+        GL_CALL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data));
+    }
+
     GL_CALL(glBindTexture(GL_TEXTURE_2D, 0));
-
     LV_PROFILER_DRAW_END;
     return texture;
 }
