@@ -491,6 +491,13 @@ static void draw_from_cached_texture(lv_draw_task_t * t)
     lv_area_move(&t->area, -a.x1, -a.y1);
     lv_area_move(&t->_real_area, -a.x1, -a.y1);
 
+    if(t->type == LV_DRAW_TASK_TYPE_IMAGE) {
+        lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)t->draw_dsc;
+        if(img_dsc->header.flags & LV_IMAGE_FLAGS_MODIFIABLE) {
+            lv_cache_drop(u->texture_cache, &data_to_find, u);
+        }
+    }
+
     lv_cache_entry_t * entry_cached = lv_cache_acquire_or_create(u->texture_cache, &data_to_find, u);
 
     lv_area_move(&t->area, a.x1, a.y1);
