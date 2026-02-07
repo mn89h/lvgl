@@ -76,7 +76,7 @@ static bool draw_to_texture(lv_draw_opengles_unit_t * u, cache_data_t * cache_da
 
 static unsigned int layer_get_texture(lv_layer_t * layer);
 static unsigned int get_framebuffer(lv_draw_opengles_unit_t * u);
-static unsigned int update_texture(int32_t w, int32_t h, const void * data, unsigned int existing_tex, int32_t * alloc_w, int32_t * alloc_h);
+static unsigned int update_texture(int32_t w, int32_t h, const void * data, unsigned int existing_tex, int32_t * alloc_w, int32_t * alloc_h, bool is_bgra);
 
 #if LV_USE_3DTEXTURE
     static void lv_draw_opengles_3d(lv_draw_task_t * t, const lv_draw_3d_dsc_t * dsc, const lv_area_t * coords);
@@ -205,7 +205,7 @@ static int32_t dispatch(lv_draw_unit_t * draw_unit, lv_layer_t * layer)
         int32_t temp_alloc_h = 0;
 
         /* Initialize the layer texture (passing NULL for data as it's a render target) */
-        texture = update_texture(w, h, NULL, 0, &temp_alloc_w, &temp_alloc_h);
+        texture = update_texture(w, h, NULL, 0, &temp_alloc_w, &temp_alloc_h, false);
         layer->user_data = (void *)(uintptr_t)texture;
     }
 
@@ -246,6 +246,49 @@ static bool draw_to_texture(lv_draw_opengles_unit_t * u, cache_data_t * cache_da
 {
     LV_PROFILER_DRAW_BEGIN;
     lv_draw_task_t * task = u->task_act;
+    lv_draw_dsc_base_t * base_dsc = task->draw_dsc;
+    
+    /* Only allocate on first creation (when texture is also 0) */
+    if(cache_data->texture == 0) {
+        cache_data->draw_dsc = lv_malloc(base_dsc->dsc_size);
+        if(cache_data->draw_dsc == NULL) {
+            LV_PROFILER_DRAW_END;
+            return false;
+        }
+        /* Initialize these once */
+        cache_data->texture = 0;
+        cache_data->alloc_w = 0;
+        cache_data->alloc_h = 0;
+    }
+    
+    /* Always sync the descriptor content */
+    lv_memcpy((void *)cache_data->draw_dsc, base_dsc, base_dsc->dsc_size);
+
+    /* --- REFINEMENT: Direct GPU Upload for Video --- */
+    if(task->type == LV_DRAW_TASK_TYPE_IMAGE) {
+        lv_draw_image_dsc_t * img_dsc = (lv_draw_image_dsc_t *)task->draw_dsc;
+        
+        if(img_dsc->header.flags & LV_IMAGE_FLAGS_MODIFIABLE) {
+            /* In LVGL 9, img_dsc->src is a pointer to the lv_image_dsc_t */
+            const lv_image_dsc_t * full_img_dsc = (const lv_image_dsc_t *)img_dsc->src;
+
+            if(full_img_dsc && full_img_dsc->data) {
+                /* Only update the texture and dimensions. 
+                 * The cache system handles the draw_dsc lifecycle. */
+                cache_data->texture = update_texture(img_dsc->header.w, img_dsc->header.h, 
+                                                 full_img_dsc->data, 
+                                                 cache_data->texture, 
+                                                 &cache_data->alloc_w, &cache_data->alloc_h, 
+                                                 false);
+                
+                cache_data->w = img_dsc->header.w;
+                cache_data->h = img_dsc->header.h;
+
+                LV_PROFILER_DRAW_END;
+                return true; 
+            }
+        }
+    }
 
     lv_layer_t dest_layer;
     lv_layer_init(&dest_layer);
@@ -271,18 +314,12 @@ static bool draw_to_texture(lv_draw_opengles_unit_t * u, cache_data_t * cache_da
     dest_layer.phy_clip_area = task->_real_area;
     lv_memzero(u->render_draw_buf.data, lv_area_get_size(&task->_real_area) * 4);
 
-    lv_display_t * disp = lv_refr_get_disp_refreshing();
-
-    lv_obj_t * obj = ((lv_draw_dsc_base_t *)task->draw_dsc)->obj;
+    lv_obj_t * obj = base_dsc->obj;
     bool original_send_draw_task_event = false;
     if(obj) {
         original_send_draw_task_event = lv_obj_has_flag(obj, LV_OBJ_FLAG_SEND_DRAW_TASK_EVENTS);
         lv_obj_remove_flag(obj, LV_OBJ_FLAG_SEND_DRAW_TASK_EVENTS);
     }
-
-    lv_draw_dsc_base_t * base_dsc = task->draw_dsc;
-    cache_data->draw_dsc = lv_malloc(base_dsc->dsc_size);
-    lv_memcpy((void *)cache_data->draw_dsc, base_dsc, base_dsc->dsc_size);
 
     switch(task->type) {
         case LV_DRAW_TASK_TYPE_FILL: {
@@ -370,6 +407,8 @@ static bool draw_to_texture(lv_draw_opengles_unit_t * u, cache_data_t * cache_da
             return false;
     }
 
+    /* Dispatching UI Drawing */
+    lv_display_t * disp = lv_refr_get_disp_refreshing();
     while(dest_layer.draw_task_head) {
         lv_draw_dispatch_layer(disp, &dest_layer);
         if(dest_layer.draw_task_head) {
@@ -378,7 +417,7 @@ static bool draw_to_texture(lv_draw_opengles_unit_t * u, cache_data_t * cache_da
     }
 
     cache_data->texture = update_texture(texture_w, texture_h, u->render_draw_buf.data,
-                                     cache_data->texture, &cache_data->alloc_w, &cache_data->alloc_h);
+                                     cache_data->texture, &cache_data->alloc_w, &cache_data->alloc_h, false);
 
     cache_data->w = texture_w;
     cache_data->h = texture_h;
@@ -447,8 +486,14 @@ static void draw_from_cached_texture(lv_draw_task_t * t)
 {
     LV_PROFILER_DRAW_BEGIN;
     lv_draw_opengles_unit_t * u = (lv_draw_opengles_unit_t *)t->draw_unit;
+    
     cache_data_t data_to_find;
+    lv_memzero(&data_to_find, sizeof(cache_data_t));  // ← CRITICAL: Zero initialize!
+    
     data_to_find.draw_dsc = (lv_draw_dsc_base_t *)t->draw_dsc;
+    data_to_find.w = lv_area_get_width(&t->_real_area);
+    data_to_find.h = lv_area_get_height(&t->_real_area);
+    data_to_find.texture = 0;
     bool h_flip = false;
     bool v_flip = false;
 #if LV_USE_3DTEXTURE
@@ -646,10 +691,11 @@ static unsigned int get_framebuffer(lv_draw_opengles_unit_t * u)
     return u->framebuffer;
 }
 
-static unsigned int update_texture(int32_t w, int32_t h, const void * data, unsigned int existing_tex, int32_t * alloc_w, int32_t * alloc_h)
+static unsigned int update_texture(int32_t w, int32_t h, const void * data, unsigned int existing_tex, int32_t * alloc_w, int32_t * alloc_h, bool is_bgra)
 {
     LV_PROFILER_DRAW_BEGIN;
     unsigned int texture = existing_tex;
+    GLenum format = is_bgra ? GL_BGRA : GL_RGBA; // <--- Select format
 
     if(texture == 0) {
         GL_CALL(glGenTextures(1, &texture));
@@ -684,14 +730,14 @@ static unsigned int update_texture(int32_t w, int32_t h, const void * data, unsi
     /* If dimensions changed (or new texture), allocate/re-allocate (Slow path) */
     if(w != *alloc_w || h != *alloc_h) {
         GL_CALL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
-        GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data));
+        GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, format, GL_UNSIGNED_BYTE, data));
         *alloc_w = w;
         *alloc_h = h;
     }
     /* FAST PATH: Stream new video frame pixels into existing GPU memory (No allocation) */
     else if(data != NULL) {
         GL_CALL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
-        GL_CALL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data));
+        GL_CALL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, format, GL_UNSIGNED_BYTE, data));
     }
 
     GL_CALL(glBindTexture(GL_TEXTURE_2D, 0));

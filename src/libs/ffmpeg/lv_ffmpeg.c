@@ -30,7 +30,7 @@
 #elif LV_COLOR_DEPTH == 16
     #define AV_PIX_FMT_TRUE_COLOR AV_PIX_FMT_RGB565LE
 #elif LV_COLOR_DEPTH == 32
-    #define AV_PIX_FMT_TRUE_COLOR AV_PIX_FMT_BGR0
+    #define AV_PIX_FMT_TRUE_COLOR AV_PIX_FMT_BGRA
 #else
     #error Unsupported  LV_COLOR_DEPTH
 #endif
@@ -843,7 +843,12 @@ static struct ffmpeg_context_s * ffmpeg_open_file(const char * path, bool is_lv_
 
         ffmpeg_ctx->has_alpha = ffmpeg_pix_fmt_has_alpha(ffmpeg_ctx->video_dec_ctx->pix_fmt);
 
-        ffmpeg_ctx->video_dst_pix_fmt = (ffmpeg_ctx->has_alpha ? AV_PIX_FMT_BGRA : AV_PIX_FMT_TRUE_COLOR);
+        ffmpeg_ctx->video_dst_pix_fmt = (ffmpeg_ctx->has_alpha ? AV_PIX_FMT_RGBA : AV_PIX_FMT_TRUE_COLOR);
+    }
+    if (!ffmpeg_ctx->has_alpha ) {
+        LV_LOG_WARN("No alpha");
+    } else {
+        LV_LOG_WARN("alpha");
     }
 
 #if LV_FFMPEG_DUMP_FORMAT

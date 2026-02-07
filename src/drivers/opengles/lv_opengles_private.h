@@ -43,8 +43,12 @@ extern "C" {
 /* In desktop GL (<Gl/gl.h>) these symbols are defined but for EGL
  * they are defined as extensions with the _EXT suffix */
 #ifndef GL_BGRA
-#define GL_BGRA GL_BGRA_EXT
-#endif /*GL_BGRA*/
+    #ifdef GL_BGRA_EXT
+        #define GL_BGRA GL_BGRA_EXT
+    #else
+        #define GL_BGRA 0x80E1
+    #endif
+#endif
 
 #ifndef GL_TEXTURE_MAX_LEVEL
 #define GL_TEXTURE_MAX_LEVEL GL_TEXTURE_MAX_LEVEL_APPLE

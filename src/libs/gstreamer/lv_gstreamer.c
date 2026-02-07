@@ -71,7 +71,9 @@ const lv_obj_class_t lv_gstreamer_class = {
     #define GST_FORMAT   "BGR"
     #define IMAGE_FORMAT LV_COLOR_FORMAT_RGB888
 #elif LV_COLOR_DEPTH == 32
-    #define GST_FORMAT   "BGRA"
+    /* GStreamer uses string-based caps. "BGRx" or "BGRA" is usually what 
+       matches LVGL's 32-bit BGRA/ARGB expectations on Linux */
+    #define GST_FORMAT   "RGBA" 
     #define IMAGE_FORMAT LV_COLOR_FORMAT_ARGB8888
 #else
     #error Unsupported LV_COLOR_DEPTH
