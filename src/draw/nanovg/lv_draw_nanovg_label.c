@@ -256,13 +256,15 @@ static bool letter_create_cb(letter_item_t * item, void * user_data)
         return false;
     }
 
-    if(!lv_font_get_glyph_bitmap(g_dsc, image_buf)) {
+    /* This call may set g_dsc->entry if the font uses a cache */
+    const lv_draw_buf_t * glyph_draw_buf = lv_font_get_glyph_bitmap(g_dsc, image_buf);
+    if(!glyph_draw_buf) {
         LV_PROFILER_DRAW_END;
         return false;
     }
 
     LV_PROFILER_DRAW_BEGIN_TAG("nvgCreateImage");
-    item->image_handle = nvgCreateImage(item->u->vg, w, h, 0, NVG_TEXTURE_ALPHA, lv_draw_buf_goto_xy(image_buf, 0, 0));
+    item->image_handle = nvgCreateImage(item->u->vg, w, h, 0, NVG_TEXTURE_ALPHA, glyph_draw_buf->data);
     LV_PROFILER_DRAW_END_TAG("nvgCreateImage");
 
     LV_LOG_TRACE("image_handle: %d", item->image_handle);
@@ -272,17 +274,42 @@ static bool letter_create_cb(letter_item_t * item, void * user_data)
 
 static void letter_free_cb(letter_item_t * item, void * user_data)
 {
+    /* 1. NULL check and Sentinel check */
+    /* We use -1 to indicate an item that is currently being freed or already gone */
+    if(item == NULL || item->image_handle == -1) {
+        return;
+    }
+
     LV_UNUSED(user_data);
     LV_PROFILER_DRAW_BEGIN;
-    LV_LOG_TRACE("image_handle: %d", item->image_handle);
-    nvgDeleteImage(item->u->vg, item->image_handle);
+
+    /* 2. Guard NanoVG resources */
+    if(item->u && item->u->vg && item->image_handle > 0) {
+        LV_LOG_TRACE("letter_free_cb: image_handle: %d", item->image_handle);
+        nvgDeleteImage(item->u->vg, item->image_handle);
+    }
+
+    /* 3. Release font glyph draw data if any */
+    if(item->g_dsc.entry) {
+        lv_font_glyph_release_draw_data(&item->g_dsc);
+        item->g_dsc.entry = NULL;
+    }
+
+    /* 4. The Sentinel: Mark as freed */
     item->image_handle = -1;
+
     LV_PROFILER_DRAW_END;
 }
 
 static lv_cache_compare_res_t letter_compare_cb(const letter_item_t * lhs, const letter_item_t * rhs)
 {
-    int cmp_res = lv_memcmp(&lhs->g_dsc, &rhs->g_dsc, sizeof(lv_font_glyph_dsc_t));
+    /* Ignore the entry field in comparison as it might change */
+    lv_font_glyph_dsc_t l_dsc = lhs->g_dsc;
+    lv_font_glyph_dsc_t r_dsc = rhs->g_dsc;
+    l_dsc.entry = NULL;
+    r_dsc.entry = NULL;
+
+    int cmp_res = lv_memcmp(&l_dsc, &r_dsc, sizeof(lv_font_glyph_dsc_t));
     if(cmp_res != 0) {
         return cmp_res > 0 ? 1 : -1;
     }
